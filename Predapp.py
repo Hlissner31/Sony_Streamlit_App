@@ -212,7 +212,8 @@ X_input = pd.DataFrame([input_data])[feature_names]
 st.title("🎬 High Value Content Classifer")
 #st.markdown("<h5 style='text-align: center; color: #f5f5f5;'>Will your content be the next blockbuster?</h5>", unsafe_allow_html=True)
 st.write("Navigate to other pages:")
-st.page_link("pages/arima_dashboard.py", label="📄 Overview", icon="📘")
+st.page_link("pages/arima_dashboard.py", label="📈 ARIMA Dashboard", icon="📘")
+
 
 
 # --- Run Prediction ---
