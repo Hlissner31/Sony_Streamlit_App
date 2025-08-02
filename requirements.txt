@@ -6,3 +6,5 @@ xgboost
 joblib
 openpyxl
 xlsxwriter
+matplotlib
+statsmodels
