@@ -177,6 +177,9 @@ if st.button("Predict High Value Content Likelihood"):
 st.markdown("---")
 st.header("\U0001F4C4 Batch Prediction from File")
 
+example_link = "https://example.com/sample_upload.xlsx"
+st.markdown(f"Don't have a file? [Download an example Excel file]({example_link})")
+
 uploaded_file = st.file_uploader("Upload CSV or Excel file", type=['csv', 'xlsx'])
 
 if uploaded_file:
@@ -193,7 +196,6 @@ if uploaded_file:
     df_input['XGB_Prob_Bin4 (%)'] = xgb_probs
     df_input['Avg_Prob_Bin4 (%)'] = avg_probs
 
-    # Manual cluster assignment
     cluster_centroids = [
         {'User_Rating': 6.55, 'Genre_Action': 0.99, 'Genre_Adventure': 0.99, 'Genre_Crime': 0.99, 'Genre_Drama': 0.5, 'Genre_Mystery': 0.01, 'Genre_Sci-Fi': 0.01, 'Genre_Thriller': 1},
         {'User_Rating': 6.46, 'Genre_Action': 0.74, 'Genre_Adventure': 0.74, 'Genre_Crime': 0.74, 'Genre_Drama': 0.63, 'Genre_Mystery': 0.26, 'Genre_Sci-Fi': 0.26, 'Genre_Thriller': 1},
