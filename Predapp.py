@@ -177,8 +177,14 @@ if st.button("Predict High Value Content Likelihood"):
 st.markdown("---")
 st.header("\U0001F4C4 Batch Prediction from File")
 
-example_link = "https://example.com/sample_upload.xlsx"
-st.markdown(f"Don't have a file? [Download an example Excel file]({example_link})")
+# Load example data from local file (must be placed in the app directory)
+example_path = "example_data.csv"
+try:
+    df_example = pd.read_csv(example_path)
+    st.subheader("📋 Example CSV Data")
+    st.dataframe(df_example.head())
+except FileNotFoundError:
+    st.info("Example file 'example_data.csv' not found. Please make sure it's in the app directory.")
 
 uploaded_file = st.file_uploader("Upload CSV or Excel file", type=['csv', 'xlsx'])
 
