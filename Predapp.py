@@ -177,13 +177,40 @@ if st.button("Predict High Value Content Likelihood"):
 st.markdown("---")
 st.header("\U0001F4C4 Batch Prediction from File")
 
-# Load example data from local file (must be placed in the app directory)
-example_path = "example_data.csv"
-try:
-    df_example = pd.read_csv(example_path)
-    st.subheader("📋 Example CSV Data")
-    st.dataframe(df_example.head())
-except FileNotFoundError:
+with st.expander("Try Example Data Instead"):
+    example_path = "example_data.csv"
+    try:
+        df_example = pd.read_csv(example_path)
+        st.subheader("📋 Example CSV Data")
+        st.dataframe(df_example.head())
+
+        df_example_transformed = preprocess_uploaded_df(df_example, distributor_freq_map, feature_names)
+        rf_probs = rf_model.predict_proba(df_example_transformed)[:, 3] * 100
+        xgb_probs = xgb_model.predict_proba(df_example_transformed)[:, 3] * 100
+        avg_probs = (rf_probs + xgb_probs) / 2
+
+        df_example['RF_Prob_Bin4 (%)'] = rf_probs
+        df_example['XGB_Prob_Bin4 (%)'] = xgb_probs
+        df_example['Avg_Prob_Bin4 (%)'] = avg_probs
+
+        cluster_centroids = [
+            {'User_Rating': 6.55, 'Genre_Action': 0.99, 'Genre_Adventure': 0.99, 'Genre_Crime': 0.99, 'Genre_Drama': 0.5, 'Genre_Mystery': 0.01, 'Genre_Sci-Fi': 0.01, 'Genre_Thriller': 1},
+            {'User_Rating': 6.46, 'Genre_Action': 0.74, 'Genre_Adventure': 0.74, 'Genre_Crime': 0.74, 'Genre_Drama': 0.63, 'Genre_Mystery': 0.26, 'Genre_Sci-Fi': 0.26, 'Genre_Thriller': 1},
+            {'User_Rating': 6.54, 'Genre_Action': 0.97, 'Genre_Adventure': 0.97, 'Genre_Crime': 0.97, 'Genre_Drama': 0.52, 'Genre_Mystery': 0.03, 'Genre_Sci-Fi': 0.03, 'Genre_Thriller': 1},
+            {'User_Rating': 6.2, 'Genre_Action': 0, 'Genre_Adventure': 0, 'Genre_Crime': 0, 'Genre_Drama': 1, 'Genre_Mystery': 1, 'Genre_Sci-Fi': 1, 'Genre_Thriller': 1},
+        ]
+
+        manual_features = ['User Rating', 'Action', 'Adventure', 'Crime', 'Drama', 'Mystery', 'Sci-Fi', 'Thriller']
+        df_cluster_input = df_example_transformed[manual_features].copy()
+        df_cluster_input.columns = [f"Genre_{col}" if col != 'User Rating' else col for col in manual_features]
+        centroids_df = pd.DataFrame(cluster_centroids)
+        distances = euclidean_distances(df_cluster_input, centroids_df)
+        df_example['Manual Cluster'] = np.argmin(distances, axis=1)
+
+        st.subheader("Predictions for Example Data")
+        st.dataframe(df_example.head())
+    except FileNotFoundError:
+        st.info("Example file 'example_data.csv' not found. Please make sure it's in the app directory.")
     st.info("Example file 'example_data.csv' not found. Please make sure it's in the app directory.")
 
 uploaded_file = st.file_uploader("Upload CSV or Excel file", type=['csv', 'xlsx'])
