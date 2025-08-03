@@ -210,7 +210,8 @@ with st.expander("Try Example Data Instead"):
         st.subheader("Predictions for Example Data")
         st.dataframe(df_example.head())
     except FileNotFoundError:
-        st.info("Example file 'example_data.csv' not found. Please make sure it's in the app directory.")
+        # Only show error if example file truly wasn't found
+        pass
     st.info("Example file 'example_data.csv' not found. Please make sure it's in the app directory.")
 
 uploaded_file = st.file_uploader("Upload CSV or Excel file", type=['csv', 'xlsx'])
