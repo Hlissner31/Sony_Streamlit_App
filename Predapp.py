@@ -212,8 +212,7 @@ with st.expander("Try Example Data Instead"):
     except FileNotFoundError:
         # Only show error if example file truly wasn't found
         pass
-    st.info("Example file 'example_data.csv' not found. Please make sure it's in the app directory.")
-
+    
 uploaded_file = st.file_uploader("Upload CSV or Excel file", type=['csv', 'xlsx'])
 
 if uploaded_file:
