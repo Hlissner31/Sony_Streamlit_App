@@ -8,3 +8,4 @@ openpyxl
 xlsxwriter
 matplotlib
 statsmodels
+seaborn
