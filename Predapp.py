@@ -162,6 +162,7 @@ X_input = pd.DataFrame([input_data])[feature_names]
 
 st.title("\U0001F3AC High Value Content Classifer")
 st.page_link("pages/arima_dashboard.py", label="\U0001F4C8 ARIMA Dashboard", icon="\U0001F4D8")
+st.page_link("pages/Sentiment_app.py", label="🗣️ Sentiment Analysis", icon="💬")
 
 if st.button("Predict High Value Content Likelihood"):
     rf_proba = rf_model.predict_proba(X_input)[0][3] * 100

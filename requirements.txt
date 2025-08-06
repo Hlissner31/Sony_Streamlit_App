@@ -8,3 +8,5 @@ openpyxl
 xlsxwriter
 matplotlib
 statsmodels
+unicodedata
+re
