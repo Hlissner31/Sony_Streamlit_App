@@ -8,6 +8,7 @@ import matplotlib.pyplot as plt
 from statsmodels.tsa.arima.model import ARIMA
 from statsmodels.graphics.tsaplots import plot_acf, plot_pacf
 from statsmodels.tsa.stattools import adfuller
+from statsmodels.tsa.statespace.sarimax import SARIMAX
 from sklearn.metrics import mean_squared_error, mean_absolute_error
 import warnings
 import io
@@ -47,7 +48,6 @@ def load_and_prepare_data(uploaded_file, channel_name):
         
         # Debug: Print column info
         st.write(f"**Debug Info:** Dataset has {len(df)} rows and columns: {list(df.columns)}")
-        st.write(f"**Available channels:** {sorted(df['channel_display_name'].unique())}")
         st.write(f"**Sample dates from file:** {df['date'].head().tolist()}")
         
         # Convert date column to datetime - handle multiple formats
@@ -164,10 +164,73 @@ def find_best_arima(train_data, max_p=5, max_d=2, max_q=5):
     
     return best_model, best_params
 
+def find_best_sarima(train_data, max_p=3, max_d=1, max_q=3, max_P=1, max_D=1, max_Q=1, s=7):
+    """Find best SARIMA parameters using AIC with a seasonal period s."""
+    print(
+        f"Finding best SARIMA parameters with ranges: p(0-{max_p}), d(0-{max_d}), q(0-{max_q}); "
+        f"P(0-{max_P}), D(0-{max_D}), Q(0-{max_Q}); s={s}"
+    )
+
+    best_aic = float('inf')
+    best_params = None
+    best_seasonal = None
+    best_model = None
+
+    progress_bar = st.progress(0)
+    total_combinations = (max_p + 1) * (max_d + 1) * (max_q + 1) * (max_P + 1) * (max_D + 1) * (max_Q + 1)
+    current_combination = 0
+
+    for p in range(max_p + 1):
+        for d in range(max_d + 1):
+            for q in range(max_q + 1):
+                for P in range(max_P + 1):
+                    for D in range(max_D + 1):
+                        for Q in range(max_Q + 1):
+                            try:
+                                model = SARIMAX(
+                                    train_data,
+                                    order=(p, d, q),
+                                    seasonal_order=(P, D, Q, s),
+                                    enforce_stationarity=False,
+                                    enforce_invertibility=False,
+                                )
+                                fitted_model = model.fit(disp=False)
+                                aic = fitted_model.aic
+
+                                if aic < best_aic:
+                                    best_aic = aic
+                                    best_params = (p, d, q)
+                                    best_seasonal = (P, D, Q)
+                                    best_model = fitted_model
+                            except Exception:
+                                pass
+                            finally:
+                                current_combination += 1
+                                progress_bar.progress(current_combination / total_combinations)
+
+    progress_bar.empty()
+
+    print(f"Best SARIMA order: {best_params}, seasonal: {best_seasonal} x {s}")
+    print(f"Best AIC: {best_aic:.2f}")
+
+    return best_model, best_params, best_seasonal, s
+
 def build_arima_model(train_data, params):
     """Build ARIMA model with given parameters"""
     model = ARIMA(train_data, order=params)
     fitted_model = model.fit()
+    return fitted_model
+
+def build_sarima_model(train_data, params, seasonal_params, s=7):
+    """Build SARIMA model with given parameters and seasonal order."""
+    model = SARIMAX(
+        train_data,
+        order=params,
+        seasonal_order=(seasonal_params[0], seasonal_params[1], seasonal_params[2], s),
+        enforce_stationarity=False,
+        enforce_invertibility=False,
+    )
+    fitted_model = model.fit(disp=False)
     return fitted_model
 
 def calculate_metrics(actual, predicted):
@@ -184,6 +247,34 @@ def make_predictions(model, n_periods=7):
     conf_int = model.get_forecast(steps=n_periods).conf_int()
     
     return forecast, conf_int
+
+# ---
+# Momentum (Day-over-Day % Change) Utilities
+# ---
+def compute_momentum_percentages(previous_value, forecast_values):
+    """Compute day-over-day percent change for each step relative to the prior day's value.
+
+    The first step compares against previous_value (last known actual). Subsequent steps compare
+    to the immediately prior forecast value.
+    """
+    pct_changes = []
+    last_val = float(previous_value)
+    for value in list(forecast_values):
+        value_float = float(value)
+        if last_val == 0:
+            pct = np.nan
+        else:
+            pct = (value_float - last_val) / last_val * 100.0
+        pct_changes.append(pct)
+        last_val = value_float
+    return pd.Series(pct_changes, index=getattr(forecast_values, 'index', None))
+
+def format_momentum(pct):
+    """Return a human-friendly momentum string with arrow and percent formatting."""
+    if pd.isna(pct):
+        return "—"
+    arrow = "↑" if pct >= 0 else "↓"
+    return f"{arrow} {abs(pct):.2f}%"
 
 # ---
 # Visualization Functions
@@ -246,6 +337,33 @@ def plot_predictions(train_data, test_data, predictions, conf_int, test_dates, c
     return fig
 
 # ---
+# Future Forecast Visualization
+# ---
+def plot_future_forecast(history_dates, history_values, forecast_dates, forecast_values, conf_int, channel_name):
+    """Plot recent history and future forecast values with confidence intervals"""
+    fig, ax = plt.subplots(figsize=(14, 8))
+
+    # Plot recent history
+    ax.plot(history_dates, history_values, label='History', color='blue', linewidth=2)
+
+    # Plot forecast
+    ax.plot(forecast_dates, forecast_values, label='Forecast', color='green', marker='s', linewidth=2, markersize=6)
+
+    # Plot confidence intervals
+    ax.fill_between(forecast_dates, conf_int.iloc[:, 0], conf_int.iloc[:, 1], 
+                    color='green', alpha=0.2, label='95% Confidence Interval')
+
+    ax.set_title(f'{channel_name} Future Viewership Forecast', fontsize=14, fontweight='bold')
+    ax.set_xlabel('Date', fontsize=12)
+    ax.set_ylabel('Views', fontsize=12)
+    ax.legend(fontsize=10)
+    ax.grid(True, alpha=0.3)
+
+    plt.xticks(rotation=45)
+    plt.tight_layout()
+    return fig
+
+# ---
 # Streamlit App Layout
 # ---
 def main():
@@ -300,6 +418,9 @@ def main():
             max_p = st.sidebar.slider("Max AR terms (p)", 1, 8, 5)
             max_d = st.sidebar.slider("Max Differencing (d)", 0, 3, 2)
             max_q = st.sidebar.slider("Max MA terms (q)", 1, 8, 5)
+            use_seasonality = st.sidebar.toggle("Use SARIMA (weekly seasonality)", value=True, help="Enable seasonal components with period s=7")
+            if use_seasonality:
+                st.sidebar.caption("Seasonal search ranges (small, fast): P,Q∈{0,1}, D∈{0,1}, s=7")
             
             # Run analysis button
             if st.sidebar.button("🚀 Run ARIMA Analysis", type="primary"):
@@ -326,7 +447,7 @@ def main():
                     test_dates = daily_data['date'][-test_days:]
                     
                     # Main content area
-                    tab1, tab2, tab3 = st.tabs(["📈 Predictions", "📊 Analysis", "📋 Detailed Results"])
+                    tab1, tab2, tab3, tab4, tab5 = st.tabs(["📈 Predictions", "📊 Analysis", "📋 Detailed Results", "🔮 Future Forecast", "ℹ️ Glossary"])
                     
                     with tab1:
                         col1, col2 = st.columns([2, 1])
@@ -335,10 +456,18 @@ def main():
                             # Check stationarity
                             stationarity_results = check_stationarity(train_data)
                             
-                            # Find best ARIMA parameters
-                            st.info("Finding optimal ARIMA parameters...")
-                            model, best_params = find_best_arima(train_data, max_p, max_d, max_q)
-                            best_aic = model.aic
+                            # Find best parameters (ARIMA or SARIMA)
+                            if use_seasonality:
+                                st.info("Finding optimal SARIMA parameters (weekly seasonality)...")
+                                model, best_params, best_seasonal, seasonal_period = find_best_sarima(
+                                    train_data, max_p=max_p, max_d=max_d, max_q=max_q,
+                                    max_P=1, max_D=1, max_Q=1, s=7
+                                )
+                                best_aic = model.aic
+                            else:
+                                st.info("Finding optimal ARIMA parameters...")
+                                model, best_params = find_best_arima(train_data, max_p, max_d, max_q)
+                                best_aic = model.aic
                             
                             # Make predictions
                             predictions, conf_int = make_predictions(model, n_periods=test_days)
@@ -354,8 +483,12 @@ def main():
                             st.subheader("🎯 Model Performance")
                             
                             # Model info
-                            st.info(f"**Best ARIMA Parameters:** {best_params}")
-                            st.info(f"**AIC Score:** {best_aic:.2f}")
+                            if use_seasonality:
+                                st.info(f"**Best SARIMA Parameters:** order={best_params}, seasonal={(best_seasonal[0], best_seasonal[1], best_seasonal[2], seasonal_period)}")
+                                st.info(f"**AIC Score:** {best_aic:.2f}")
+                            else:
+                                st.info(f"**Best ARIMA Parameters:** {best_params}")
+                                st.info(f"**AIC Score:** {best_aic:.2f}")
                             
                             # Stationarity test
                             if stationarity_results['is_stationary']:
@@ -404,13 +537,23 @@ def main():
                         st.subheader("📋 Detailed Prediction Comparison")
                         
                         # Create detailed comparison dataframe
+                        # Momentum: percent change day-over-day for actual and predicted
+                        actual_prev = daily_data['views'].iloc[-len(test_data)-1]
+                        pred_momentum = compute_momentum_percentages(actual_prev, predictions)
+                        # For actual momentum, compare each actual to the previous actual (first uses actual_prev)
+                        actual_series = pd.Series(test_data.values, index=test_dates)
+                        actual_momentum = compute_momentum_percentages(actual_prev, actual_series)
+
                         comparison_df = pd.DataFrame({
+                            'Day': test_dates.dt.day_name(),
                             'Date': test_dates.dt.strftime('%Y-%m-%d'),
                             'Actual': test_data.values,
                             'Predicted': predictions.values,
                             'Difference': test_data.values - predictions.values,
                             'Absolute Error': np.abs(test_data.values - predictions.values),
-                            'Percentage Error': np.abs((test_data.values - predictions.values) / test_data.values) * 100
+                            'Percentage Error': np.abs((test_data.values - predictions.values) / test_data.values) * 100,
+                            'Actual DoD %': [format_momentum(x) for x in actual_momentum.values],
+                            'Predicted DoD %': [format_momentum(x) for x in pred_momentum.values]
                         })
                         
                         st.dataframe(comparison_df, use_container_width=True)
@@ -427,6 +570,82 @@ def main():
                         # Model summary
                         st.subheader("🔧 Model Summary")
                         st.text(str(model.summary()))
+
+                    with tab4:
+                        st.subheader("🔮 Forecast Future Values")
+                        st.caption("Out-of-sample forecast using the same horizon as the Test Period.")
+
+                        # Use the same horizon as selected Test Period
+                        forecast_days = test_days
+
+                        # Refit model on full data using the best params
+                        if use_seasonality:
+                            full_model = build_sarima_model(daily_data['views'], best_params, best_seasonal, s=7)
+                        else:
+                            full_model = build_arima_model(daily_data['views'], best_params)
+                        future_forecast, future_conf_int = make_predictions(full_model, n_periods=forecast_days)
+
+                        # Build future date range
+                        last_date = daily_data['date'].max()
+                        future_dates = pd.date_range(start=last_date + pd.Timedelta(days=1), periods=forecast_days, freq='D')
+
+                        # Plot: show recent history (last 60 days) + forecast
+                        history_window = 60 if len(daily_data) > 60 else len(daily_data)
+                        history_dates = daily_data['date'][-history_window:]
+                        history_values = daily_data['views'][-history_window:]
+
+                        fig_future = plot_future_forecast(history_dates, history_values, future_dates, future_forecast, future_conf_int, selected_channel)
+                        st.pyplot(fig_future)
+
+                        # Tabular results
+                        st.subheader("📅 Forecast Table")
+                        future_df = pd.DataFrame({
+                            'Day': future_dates.day_name(),
+                            'Date': future_dates.strftime('%Y-%m-%d'),
+                            'Forecast': future_forecast.values,
+                            'Lower CI': future_conf_int.iloc[:, 0].values,
+                            'Upper CI': future_conf_int.iloc[:, 1].values
+                        })
+                        # Momentum for forecast vs last actual, then sequentially
+                        last_actual = daily_data['views'].iloc[-1]
+                        future_momentum = compute_momentum_percentages(last_actual, future_forecast)
+                        future_df['DoD %'] = [format_momentum(x) for x in future_momentum.values]
+                        st.dataframe(future_df, use_container_width=True)
+
+                        # Download button
+                        forecast_csv = future_df.to_csv(index=False)
+                        st.download_button(
+                            label="📥 Download Forecast as CSV",
+                            data=forecast_csv,
+                            file_name=f"arima_future_forecast_{selected_channel.replace(' ', '_')}.csv",
+                            mime="text/csv"
+                        )
+
+                    with tab5:
+                        st.subheader("ℹ️ Glossary of Terms")
+                        st.markdown(
+                            """
+                            - **RMSE (Root Mean Squared Error)**: Square root of the average squared differences between actual and predicted values. Penalizes large errors.
+                            - **MAE (Mean Absolute Error)**: Average of absolute differences between actual and predicted values. Easy to interpret in the original units.
+                            - **MAPE (Mean Absolute Percentage Error)**: Average absolute percentage error relative to actuals. Lower is better; sensitive when actuals are near zero.
+                            - **AIC (Akaike Information Criterion)**: Model selection score balancing fit and complexity. Lower AIC indicates a better model within the compared set.
+                            - **Stationarity**: A stationary series has constant mean/variance over time. Many models (like ARIMA) assume stationarity.
+                            - **ADF Test (Augmented Dickey-Fuller)**: Statistical test for stationarity. A small p-value (≤ 0.05) suggests the series is stationary.
+                            - **ARIMA(p, d, q)**: Time series model with:
+                              - **p (AR)**: Autoregressive lags — dependence on prior values.
+                              - **d (I)**: Differencing order — number of times data is differenced to remove trend.
+                              - **q (MA)**: Moving average lags — dependence on past forecast errors.
+                            - **SARIMA(p, d, q)(P, D, Q)<sub>s</sub>**: ARIMA with a seasonal component.
+                              - **P, D, Q**: Seasonal AR, differencing, and MA orders.
+                              - **s (seasonal period)**: Number of time steps per season; here **s = 7** captures day‑of‑week effects.
+                              - Example: `(p,d,q)=(1,1,1)` and seasonal `(P,D,Q,s)=(1,0,1,7)` models weekly patterns in daily data.
+                            - **ACF (Autocorrelation Function)**: Correlation of a series with its own past values; helps choose MA order (q) and diagnose residual autocorrelation.
+                            - **PACF (Partial ACF)**: Correlation of a series with its past values while controlling for intermediate lags; helps choose AR order (p).
+                            - **Confidence Interval (95%)**: Range that likely contains the true value 95% of the time under model assumptions.
+                            - **Test Period (days)**: The held-out last N days used to validate predictions.
+                            - **DoD Momentum (%)**: Day-over-day percent change. First day compares to the last prior value, then each day compares to the previous day.
+                            """
+                        )
         
         except Exception as e:
             st.error(f"Error loading file: {str(e)}")
